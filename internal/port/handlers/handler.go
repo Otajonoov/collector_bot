@@ -9,18 +9,16 @@ import (
 type HandlerFunc func(*tb.Message)
 
 type Handler struct {
-	log       *slog.Logger
-	b         *tb.Bot
-	repo      adapter.Repo
-	channelID int64
+	log  *slog.Logger
+	b    *tb.Bot
+	repo adapter.Repo
 }
 
-func NewHandler(b *tb.Bot, log *slog.Logger, repo adapter.Repo, channelID int64) *Handler {
+func NewHandler(b *tb.Bot, log *slog.Logger, repo adapter.Repo) *Handler {
 	return &Handler{
-		log:       log,
-		b:         b,
-		repo:      repo,
-		channelID: channelID,
+		log:  log,
+		b:    b,
+		repo: repo,
 	}
 }
 

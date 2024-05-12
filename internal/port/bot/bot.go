@@ -9,10 +9,9 @@ import (
 )
 
 type Bot struct {
-	b         *tb.Bot
-	log       *slog.Logger
-	repo      adapter.Repo
-	channelID int64
+	b    *tb.Bot
+	log  *slog.Logger
+	repo adapter.Repo
 }
 
 func NewBot(log *slog.Logger, clientUser adapter.Repo) (*Bot, error) {
@@ -36,11 +35,9 @@ func NewBot(log *slog.Logger, clientUser adapter.Repo) (*Bot, error) {
 func (b *Bot) registerHandlers() {
 	b.log.Info("registering handlers")
 
-	handlers := handler.NewHandler(b.b, b.log, b.repo, b.channelID)
+	handlers := handler.NewHandler(b.b, b.log, b.repo)
 
 	b.b.Handle(handler.StartCommand, handlers.Start)
-
-	// Client
 	b.b.Handle(handler.CheckClientCommand, handlers.CheckClient)
 	b.b.Handle(handler.AddClientCommand, handlers.AddClient)
 }

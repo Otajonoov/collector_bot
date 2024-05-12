@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/jung-kurt/gofpdf"
-	"go.uber.org/zap"
 	tb "gopkg.in/tucnak/telebot.v2"
 	"image"
 	"iman_tg_bot/internal/model"
@@ -15,44 +14,60 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
+
+var channelID int64 = -1002073737722
 
 type File struct {
 	File *multipart.FileHeader `form:"file" binding:"required"`
 }
 
-var (
-	clientData model.Client
-	lat        float32
-	long       float32
-)
-
 func (h *Handler) AddClient(m *tb.Message) {
+	userInfoCache := NewCache()
+
 	steps := []struct {
 		prompt  string
-		setter  func(string) error
+		setter  func(clientID int64, value string)
 		hasNext bool
 	}{
-		{"Contract ID", func(text string) error { clientData.ContractId = text; return nil }, true},
-		{"Phone Number", func(text string) error { clientData.PhoneNumber = text; return nil }, true},
-		{"Address", func(text string) error { clientData.Address = text; return nil }, true},
-		{"Payment sum", func(text string) error { clientData.PaymentSum = text; return nil }, true},
-		{"Comment", func(text string) error { clientData.Comment = text; return nil }, true},
-		{"Location", func(text string) error { clientData.Location = text; return nil }, false},
-		{"Address foto", func(text string) error { clientData.AddressFoto = text; return nil }, true},
-		{"Payment foto", func(text string) error { clientData.PaymentFoto = text; return nil }, true},
+		{"Contract ID", func(clientID int64, value string) {
+			userInfoCache.SetClientInfo(clientID, "contract_id", value, 180)
+		}, true},
+		{"Phone Number", func(clientID int64, value string) {
+			userInfoCache.SetClientInfo(clientID, "phone_number", value, 180)
+		}, true},
+		{"Address", func(clientID int64, value string) {
+			userInfoCache.SetClientInfo(clientID, "address", value, 180)
+		}, true},
+		{"Payment sum", func(clientID int64, value string) {
+			userInfoCache.SetClientInfo(clientID, "payment_sum", value, 180)
+		}, true},
+		{"Comment", func(clientID int64, value string) {
+			userInfoCache.SetClientInfo(clientID, "comment", value, 180)
+		}, true},
+		{"Location", func(clientID int64, value string) {
+			userInfoCache.SetClientInfo(clientID, "location", value, 180)
+		}, true},
+		{"Address foto", func(clientID int64, value string) {
+			userInfoCache.SetClientInfo(clientID, "address_foto_path", value, 180)
+		}, true},
+		{"Payment foto", func(clientID int64, value string) {
+			userInfoCache.SetClientInfo(clientID, "payment_foto_path", value, 180)
+		}, true},
 	}
 
-	h.handleSteps(m, &clientData, steps, 0)
+	h.handleSteps(m, userInfoCache, steps, 0)
 }
 
-func (h *Handler) handleSteps(m *tb.Message, clientData *model.Client, steps []struct {
+func (h *Handler) handleSteps(m *tb.Message, userInfoCache *Cache, steps []struct {
 	prompt  string
-	setter  func(string) error
+	setter  func(userId int64, value string)
 	hasNext bool
 }, currentStep int) {
 	if currentStep >= len(steps) {
-		h.finalizeAddClient(m)
+		h.finalizeAddClient(m, userInfoCache)
 		return
 	}
 
@@ -60,12 +75,9 @@ func (h *Handler) handleSteps(m *tb.Message, clientData *model.Client, steps []s
 	h.b.Send(m.Sender, step.prompt)
 
 	h.b.Handle(tb.OnText, func(msg *tb.Message) {
-		if err := step.setter(msg.Text); err != nil {
-			log.Println("Error setting client data:", err)
-			return
-		}
+		step.setter(msg.Chat.ID, msg.Text)
 		currentStep++
-		h.handleSteps(m, clientData, steps, currentStep)
+		h.handleSteps(m, userInfoCache, steps, currentStep)
 	})
 
 	h.b.Handle(tb.OnPhoto, func(msg *tb.Message) {
@@ -81,14 +93,22 @@ func (h *Handler) handleSteps(m *tb.Message, clientData *model.Client, steps []s
 			return
 		}
 
-		if clientData.AddressFoto == "" {
-			clientData.AddressFoto = photoPath
-		} else if clientData.PaymentFoto == "" {
-			clientData.PaymentFoto = photoPath
+		_, exists := userInfoCache.GetClientInfo(msg.Chat.ID, "address_foto_path")
+		if !exists {
+			step.setter(msg.Chat.ID, photoPath)
+			currentStep++
+			h.handleSteps(m, userInfoCache, steps, currentStep)
+			return
+		}
+		_, exists = userInfoCache.GetClientInfo(msg.Chat.ID, "payment_foto_path")
+		if !exists {
+			step.setter(msg.Chat.ID, photoPath)
+			currentStep++
+			h.handleSteps(m, userInfoCache, steps, currentStep)
+			return
 		}
 
-		currentStep++
-		h.handleSteps(m, clientData, steps, currentStep)
+		h.handleSteps(m, userInfoCache, steps, currentStep)
 	})
 
 	h.b.Handle(tb.OnLocation, func(msg *tb.Message) {
@@ -98,23 +118,54 @@ func (h *Handler) handleSteps(m *tb.Message, clientData *model.Client, steps []s
 			return
 		}
 
-		// Extract latitude and longitude from the message
-		lat = msg.Location.Lat
-		long = msg.Location.Lng
-
-		clientData.LocationLatitude = fmt.Sprintf("%f", lat)
-		clientData.LocationLongitude = fmt.Sprintf("%f", long)
+		lat := float32(msg.Location.Lat)
+		long := float32(msg.Location.Lng)
+		step.setter(msg.Chat.ID, fmt.Sprintf("%f,%f", lat, long))
 
 		currentStep++
-		h.handleSteps(m, clientData, steps, currentStep)
+		h.handleSteps(m, userInfoCache, steps, currentStep)
 	})
 }
 
-func (h *Handler) finalizeAddClient(m *tb.Message) {
-	// Generate the file name
-	fileName := h.generateFileName(m.Sender, clientData.ContractId)
+func (h *Handler) finalizeAddClient(m *tb.Message, userInfoCache *Cache) {
 
-	// Create a new PDF document
+	chatID := m.Chat.ID
+
+	contact_id, _ := userInfoCache.GetClientInfo(chatID, "contract_id")
+	phone_number, _ := userInfoCache.GetClientInfo(chatID, "phone_number")
+	address, _ := userInfoCache.GetClientInfo(chatID, "address")
+	payment_sum, _ := userInfoCache.GetClientInfo(chatID, "payment_sum")
+	comment, _ := userInfoCache.GetClientInfo(chatID, "comment")
+	location, _ := userInfoCache.GetClientInfo(chatID, "location")
+	address_foto_path, _ := userInfoCache.GetClientInfo(chatID, "address_foto_path")
+	payment_foto_path, _ := userInfoCache.GetClientInfo(chatID, "payment_foto_path")
+
+	res, err := h.repo.ClientUser().CreateOne(&model.Client{
+		ContractId:      contact_id,
+		PhoneNumber:     phone_number,
+		Address:         address,
+		PaymentSum:      payment_sum,
+		Comment:         comment,
+		Location:        location,
+		AddressFotoPath: address_foto_path,
+		PaymentFotoPath: payment_foto_path,
+		ChatId:          chatID,
+	})
+	if err != nil {
+		log.Println("Error creating client user:", err)
+		return
+	}
+
+	lat, long, err := getLatAndLang(res.Location)
+	if err != nil {
+		log.Println("Error getting lat and lang:", err)
+		return
+	}
+
+	url := fmt.Sprintf("https://www.google.com/maps?q=%f,%f", lat, long)
+	fileName := h.generateFileName(m.Sender, contact_id)
+
+	// CreateOne a new PDF document
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	pdf.AddPage()
 	pdf.SetFont("Arial", "B", 15) // Decrease font size for better text arrangement
@@ -122,41 +173,41 @@ func (h *Handler) finalizeAddClient(m *tb.Message) {
 	// Add content to the PDF
 	pdf.SetX(10) // Set initial X position
 	pdf.CellFormat(40, 10, "Contract ID:", "", 0, "L", false, 0, "")
-	pdf.CellFormat(0, 10, clientData.ContractId, "", 0, "L", false, 0, "")
+	pdf.CellFormat(0, 10, res.ContractId, "", 0, "L", false, 0, "")
 	pdf.Ln(-1) // Move to the next line without spacing
 
 	pdf.SetX(10) // Reset X position
 	pdf.CellFormat(40, 10, "Phone Number:", "", 0, "L", false, 0, "")
-	pdf.CellFormat(0, 10, clientData.PhoneNumber, "", 0, "L", false, 0, "")
+	pdf.CellFormat(0, 10, res.PhoneNumber, "", 0, "L", false, 0, "")
 	pdf.Ln(-1) // Move to the next line without spacing
 
 	pdf.SetX(10) // Reset X position
 	pdf.CellFormat(40, 10, "Address:", "", 0, "L", false, 0, "")
-	pdf.CellFormat(0, 10, clientData.Address, "", 0, "L", false, 0, "")
+	pdf.CellFormat(0, 10, res.Address, "", 0, "L", false, 0, "")
 	pdf.Ln(-1) // Move to the next line without spacing
 
 	pdf.SetX(10) // Reset X position
 	pdf.CellFormat(40, 10, "Payment sum:", "", 0, "L", false, 0, "")
-	pdf.CellFormat(0, 10, clientData.PaymentSum, "", 0, "L", false, 0, "")
+	pdf.CellFormat(0, 10, res.PaymentSum, "", 0, "L", false, 0, "")
 	pdf.Ln(-1)
 
 	pdf.SetX(10)
 	pdf.CellFormat(40, 10, "Comment:", "", 0, "L", false, 0, "")
-	pdf.MultiCell(0, 10, clientData.Comment, "", "L", false) // Use MultiCell for comment
+	pdf.MultiCell(0, 10, res.Comment, "", "L", false)
 	pdf.Ln(-1)
 
 	pdf.SetX(10)
 	pdf.CellFormat(40, 10, "Location:", "", 0, "L", false, 0, "")
-	pdf.CellFormat(0, 10, "Open in Maps", "", 0, "L", false, 0, "")
+	//pdf.CellFormat(0, 10, res.Location, "", 0, "L", false, 0, "")
 	pdf.Ln(-1)
 
 	// Add a clickable link to the location
 	pdf.SetX(10)
-	pdf.WriteLinkString(0, fmt.Sprintf("https://www.google.com/maps?q=%f,%f", lat, long), "")
-	pdf.Ln(7)
+	pdf.WriteLinkString(0, url, "Map Link")
+	pdf.Ln(5)
 
 	// Get image dimensions
-	imageWidth, imageHeight := getImageDimensions(clientData.AddressFoto)
+	imageWidth, imageHeight := getImageDimensions(res.AddressFotoPath)
 
 	// Calculate the aspect ratio for resizing
 	imageAspectRatio := imageWidth / imageHeight
@@ -164,14 +215,15 @@ func (h *Handler) finalizeAddClient(m *tb.Message) {
 	maxHeight := maxWidth / imageAspectRatio
 
 	pdf.Cell(0, 10, "Address Photo:")
-	if clientData.AddressFoto != "" {
-		pdf.ImageOptions(clientData.AddressFoto, 10.0, pdf.GetY()+10, maxWidth, maxHeight, false, gofpdf.ImageOptions{}, 0, "")
-	}
+	pdf.ImageOptions(res.AddressFotoPath, 10.0, pdf.GetY()+10, maxWidth, maxHeight, false, gofpdf.ImageOptions{}, 0, "")
 
-	pdf.AddPage()
-	pdf.Cell(0, 10, "Payment foto:")
-	if clientData.PaymentFoto != "" {
-		pdf.ImageOptions(clientData.PaymentFoto, 10.0, pdf.GetY()+10, maxWidth, maxHeight, false, gofpdf.ImageOptions{}, 0, "")
+	// Get image dimensions
+	imageWidth, imageHeight = getImageDimensions(res.AddressFotoPath)
+
+	if payment_foto_path != "" {
+		pdf.AddPage()
+		pdf.Cell(0, 10, "Payment foto:")
+		pdf.ImageOptions(res.PaymentFotoPath, 10.0, pdf.GetY()+10, maxWidth, maxHeight, false, gofpdf.ImageOptions{}, 0, "")
 	}
 
 	// Write the PDF content to a buffer
@@ -182,15 +234,16 @@ func (h *Handler) finalizeAddClient(m *tb.Message) {
 		return
 	}
 
-	if err := h.repo.ClientUser().Create(&clientData); err != nil {
-		h.log.Error("failed to create client user", zap.Error(err))
+	// Send the PDF document to the group
+	_, err = h.b.Send(tb.ChatID(channelID), &tb.Document{
+		File:     tb.FromReader(&buf),
+		FileName: fileName,
+	})
+	if err != nil {
+		log.Println("Error sending PDF to group:", err)
 		return
 	}
-
-	// Send the PDF document to the user
-	h.b.Send(m.Sender, &tb.Document{File: tb.FromReader(&buf), FileName: fileName}, &tb.SendOptions{
-		ReplyMarkup: AdminButtons,
-	})
+	h.b.Send(m.Sender, "Malumot muvaffaqiyatli yuklandi.")
 }
 
 // Function to get the dimensions of an image file
@@ -211,43 +264,37 @@ func getImageDimensions(imagePath string) (float64, float64) {
 	return float64(img.Width), float64(img.Height)
 }
 
-func (h *Handler) generateFileName(sender *tb.User, rasrochqaId string) string {
+func (h *Handler) generateFileName(sender *tb.User, contactID string) string {
 	fileName := "client_information.pdf"
 	if sender != nil && (sender.FirstName != "" || sender.LastName != "") {
-		fileName = fmt.Sprintf("%s_%s_%s.pdf", sender.FirstName, sender.LastName, rasrochqaId)
+		fileName = fmt.Sprintf("%s_%s_%s.pdf", sender.FirstName, sender.LastName, contactID)
 	}
 	return fileName
 }
 
-// Method to save the received photo file to the images folder
 func (h *Handler) savePhotoToFolder(photo *tb.Photo) (string, error) {
-	// Get the file URL
 	fileURL, err := h.b.FileURLByID(photo.FileID)
 	if err != nil {
 		return "", err
 	}
 
-	// Download the photo data
 	resp, err := http.Get(fileURL)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	// Read the photo data
 	photoData, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
 
-	// Create the images folder if it doesn't exist
 	imagesFolder := "images/"
 	err = os.MkdirAll(imagesFolder, 0755)
 	if err != nil {
 		return "", err
 	}
 
-	// Save the photo data to a file in the images folder
 	photoPath := filepath.Join(imagesFolder, uuid.New().String()+"photo.jpg")
 	err = ioutil.WriteFile(photoPath, photoData, 0644)
 	if err != nil {
@@ -255,4 +302,23 @@ func (h *Handler) savePhotoToFolder(photo *tb.Photo) (string, error) {
 	}
 
 	return photoPath, nil
+}
+
+func getLatAndLang(location string) (float64, float64, error) {
+	latLang := strings.Split(location, ",")
+	if len(latLang) != 2 {
+		return 0, 0, fmt.Errorf("invalid location format")
+	}
+
+	lat, err := strconv.ParseFloat(latLang[0], 64)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	lang, err := strconv.ParseFloat(latLang[1], 64)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return lat, lang, nil
 }

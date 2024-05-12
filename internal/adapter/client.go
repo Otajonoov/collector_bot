@@ -7,7 +7,7 @@ import (
 )
 
 type ClientI interface {
-	Create(req *model.Client) error
+	CreateOne(res *model.Client) (*model.Client, error)
 }
 
 type clientRepo struct {
@@ -20,36 +20,57 @@ func NewClientRepo(db *pgxpool.Pool) *clientRepo {
 	}
 }
 
-func (c *clientRepo) Create(req *model.Client) error {
+func (c *clientRepo) CreateOne(req *model.Client) (*model.Client, error) {
+
+	result := model.Client{}
 
 	query := `
-			INSERT INTO client_info (
-			                         contract_id,
-			                         phone_number,
-			                         address,
-			                         payment_sum,
-			                         comment,
-			                         location_latitude,
-			                         location_longitude,
-			                         address_foto_path,
-			                         payment_foto_path
-			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
-
-	_, err := c.db.Exec(context.Background(), query,
+		INSERT INTO client_info (
+		    contract_id,
+		    phone_number,
+		  	address,
+		    payment_sum, 
+		    comment, 
+		    location,
+			address_foto_path,
+		    payment_foto_path,
+		    chat_id
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING 
+			contract_id,
+		    phone_number,
+		    address,
+		    payment_sum, 
+		    comment, 
+		    location,
+		    address_foto_path,
+		    payment_foto_path,
+		    chat_id
+`
+	if err := c.db.QueryRow(context.Background(), query,
 		req.ContractId,
 		req.PhoneNumber,
 		req.Address,
 		req.PaymentSum,
 		req.Comment,
-		req.LocationLatitude,
-		req.LocationLongitude,
-		req.AddressFoto,
-		req.PaymentFoto,
-	)
-	if err != nil {
-		return err
+		req.Location,
+		req.AddressFotoPath,
+		req.PaymentFotoPath,
+		req.ChatId,
+	).Scan(
+		&result.ContractId,
+		&result.PhoneNumber,
+		&result.Address,
+		&result.PaymentSum,
+		&result.Comment,
+		&result.Location,
+		&result.AddressFotoPath,
+		&result.PaymentFotoPath,
+		&result.ChatId,
+	); err != nil {
+		return nil, err
 	}
 
-	return nil
+	return &result, nil
 }

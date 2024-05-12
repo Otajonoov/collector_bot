@@ -5,6 +5,7 @@ import (
 )
 
 var AuthButtons = &telebot.ReplyMarkup{
+	ResizeReplyKeyboard: true,
 	ReplyKeyboard: [][]telebot.ReplyButton{
 		{
 			telebot.ReplyButton{Text: "Tizimga kirish"},
@@ -13,6 +14,7 @@ var AuthButtons = &telebot.ReplyMarkup{
 }
 
 var AdminButtons = &telebot.ReplyMarkup{
+	ResizeReplyKeyboard: true,
 	ReplyKeyboard: [][]telebot.ReplyButton{
 		{
 			telebot.ReplyButton{Text: "Malumot qo'shish"},
