@@ -1,13 +1,15 @@
 CREATE TABLE IF NOT EXISTS "client_info"
 (
     id                  BIGSERIAL PRIMARY KEY,
-    contract_id         VARCHAR(255) NOT NULL,
-    phone_number        VARCHAR(255) NOT NULL,
-    address             VARCHAR(255) NOT NULL,
-    payment_sum         VARCHAR(255) NOT NULL,
-    comment             VARCHAR(255) NOT NULL,
-    location            VARCHAR(255) NOT NULL,
-    address_foto_path   VARCHAR(255) NOT NULL,
-    payment_foto_path   VARCHAR(255) NOT NULL,
-    chat_id             BIGINT NOT NULL
+    contract_id         VARCHAR(255) DEFAULT '',
+    phone_number        VARCHAR(255) DEFAULT '',
+    address             VARCHAR(255) DEFAULT '',
+    payment_sum         VARCHAR(255) DEFAULT '',
+    comment             VARCHAR(255) DEFAULT '',
+    location            VARCHAR(255) DEFAULT '',
+    address_foto_path   VARCHAR(255) DEFAULT '',
+    payment_foto_path   VARCHAR(255) DEFAULT '',
+    user_name           VARCHAR(255) DEFAULT '',
+    chat_id             BIGINT NOT NULL,
+    step                FLOAT DEFAULT 0
 );

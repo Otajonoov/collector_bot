@@ -17,13 +17,11 @@ const (
 )
 
 func main() {
-	// Config
+
 	cfg := config.Load()
 
-	// Logger
 	log := setupLogger(cfg.Environment)
 
-	// DB
 	pgxConn, err := db.ConnDB()
 	if err != nil {
 		log.Error("failed to connect to database", err)
@@ -31,15 +29,9 @@ func main() {
 	}
 	defer pgxConn.Close()
 
-	// repo
 	clientUser := adapter.NewRepo(pgxConn)
 
-	//bot
-	bot, err := bot.NewBot(log, clientUser)
-	if err != nil {
-		log.Error("failed to create bot", err)
-		os.Exit(1)
-	}
+	bot := bot.NewBot(cfg, clientUser, log)
 
 	bot.Start()
 }
