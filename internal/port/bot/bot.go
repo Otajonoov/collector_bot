@@ -45,6 +45,10 @@ func (h *BotHandler) Start() {
 }
 
 func (h *BotHandler) HandleBot(update tgbotapi.Update) {
+	if update.Message == nil {
+		h.log.Error("Error", "update.Message is nil")
+		return
+	}
 	user, err := h.repo.ClientUser().GetOrCreate(update.Message.Chat.ID, update.Message.From.FirstName+"_"+update.Message.From.LastName)
 	if err != nil {
 		h.SendTextMessage(user, "xatolik yuz berdi")
