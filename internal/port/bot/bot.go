@@ -82,7 +82,8 @@ func (h *BotHandler) HandleBot(update tgbotapi.Update) {
 				h.SendTextMessage(user, "Noto'g'ri parol, qaytadan kiriting")
 			}
 		case model.AddData:
-			h.SendTextMessage(user, "Contract ID")
+			//h.SendTextMessage(user, "Contract ID")
+			h.RemoveKeyboard(user, "Contract ID")
 
 			user.Step = model.ContractId
 			err = h.repo.ClientUser().ChangeStep(user.ChatId, model.ContractId)
@@ -149,19 +150,6 @@ func (h *BotHandler) HandleBot(update tgbotapi.Update) {
 			if err != nil {
 				log.Println(err)
 			}
-		case model.Location:
-			h.SendTextMessage(user, "Address Foto")
-			//location := fmt.Sprintf("%f,%f", loc.Latitude, loc.Longitude)
-			err := h.repo.ClientUser().UpdateOneFild(user.ChatId, "location", "location")
-			if err != nil {
-				log.Println(err)
-			}
-
-			user.Step = model.AddressFotoPath
-			err = h.repo.ClientUser().ChangeStep(user.ChatId, model.AddressFotoPath)
-			if err != nil {
-				log.Println(err)
-			}
 		case model.Finish:
 			if msg == FinishCommand {
 				h.finalizeAddClient(user.ChatId)
@@ -193,15 +181,16 @@ func (h *BotHandler) HandleBot(update tgbotapi.Update) {
 	} else if update.Message.Photo != nil {
 		switch user.Step {
 		case model.AddressFotoPath:
-			h.SendTextMessage(user, "Payment Photo")
 			// Check if the update has a photo
 			if len(update.Message.Photo) == 0 {
 				h.SendTextMessage(user, "Rasimni qaytadan yuboring")
 				return
 			}
+			h.SendTextMessage(user, "Payment Photo")
+
 			// Get the FileID of the last photo in the array
 			fileId := update.Message.Photo[len(update.Message.Photo)-1].FileID
-			log.Println("FileID:", fileId)
+
 			// Save the photo to the images folder
 			imagePath, err := h.savePhotoToFolder(h.bot, fileId)
 			if err != nil {
@@ -264,6 +253,15 @@ func (h *BotHandler) SendKeyboardButton(user *model.Client, text string, keywd t
 	msg := tgbotapi.NewMessage(user.ChatId, text)
 	msg.ParseMode = "html"
 	msg.ReplyMarkup = keywd
+	if _, err := h.bot.Send(msg); err != nil {
+		log.Println(err)
+	}
+}
+
+func (h *BotHandler) RemoveKeyboard(user *model.Client, text string) {
+	msg := tgbotapi.NewMessage(user.ChatId, text)
+	msg.ParseMode = "html"
+	msg.ReplyMarkup = tgbotapi.NewRemoveKeyboard(true)
 	if _, err := h.bot.Send(msg); err != nil {
 		log.Println(err)
 	}

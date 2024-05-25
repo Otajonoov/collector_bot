@@ -32,14 +32,4 @@ const (
 
 const (
 	MenuText = "<b>Assalomu alaykum.</b>"
-	Malumot  = "" +
-		"Malumotlarni shu tartibda kiriting:\n" +
-		"Contract ID\n" +
-		"Phone Number\n" +
-		"Address\n" +
-		"Payment Sum\n" +
-		"Comment\n" +
-		"Location\n" +
-		"Address Foto\n" +
-		"Payment Foto\n"
 )
